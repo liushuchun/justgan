@@ -28,7 +28,11 @@ if __name__ == '__main__':
             visualizer.reset()
             total_steps += opt.batchSize
             epoch_iter += opt.batchSize
+            print(data.size())
             model.set_input(data)
+
+
+
             model.optimize_parameters()
 
             if total_steps % opt.display_freq == 0:

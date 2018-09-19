@@ -138,8 +138,12 @@ class GANLoss(nn.Module):
 # downsampling/upsampling operations.
 # Code and idea originally from Justin Johnson's architecture.
 # https://github.com/jcjohnson/fast-neural-style/
+
+
+
+
 class ResnetGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect',with_spn=False):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -150,6 +154,8 @@ class ResnetGenerator(nn.Module):
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
+        if with_spn:
+            pass
 
 
         self.cnn1=nn.Sequential(nn.ReflectionPad2d(3),
@@ -169,6 +175,13 @@ class ResnetGenerator(nn.Module):
                       norm_layer(ngf * mult * 2),
                       nn.ReLU(True)]
         self.cnn2=nn.Sequential(*model)
+
+        self.cnn_trans=nn.Sequential(nn.Conv2d(256,256,kernel_size=8,padding=0,bias=use_bias),norm_layer(256),nn.ReLU(True))
+
+        self.rnn=nn.LSTM(input_size=256,hidden_size=256,bidirectional=True,use_dropout=True)
+
+
+
 
         mult = 2**n_downsampling
         model=[]
@@ -195,8 +208,58 @@ class ResnetGenerator(nn.Module):
 
         input=self.cnn2(input)
 
+        feature=self.cnn_trans(input)
+        print("feature size:",feature.size())
+
+        b,c,h,w=feature.size()
+
+        assert(h==1,"the height of the conv must be 1")
+
+        feature=feature.squeeze(2)
+        feature=feature.permute(2,0,1)
+        print("feature squeeze and permute size():",feature.size())
+
+        output=self.rnn(feature)
+        print("the output of the lstm.size():",output.size())
+
         return self.model(input)
 
+
+def main():
+    from torch.autograd import Variable
+    import torch.onnx
+    import torchvision
+    pass
+
+
+class Attention_block(nn.Module):
+    def __init__(self, F_g, F_l, F_int):
+        super(Attention_block, self).__init__()
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+
+        self.psi = nn.Sequential(
+            nn.Conv2d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(1),
+            nn.Sigmoid()
+        )
+
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.relu(g1 + x1)
+        psi = self.psi(psi)
+
+        return x * psi
 
 # Define a resnet block
 class ResnetBlock(nn.Module):
